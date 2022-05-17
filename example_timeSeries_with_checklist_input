@@ -1,0 +1,62 @@
+from cProfile import label
+import dash
+from dash import Dash, html, dcc,Input, Output
+from matplotlib.pyplot import ylabel
+import plotly.express as px
+import pandas as pd
+
+app = Dash(__name__)
+
+
+df = pd.read_csv("ex_data.csv")
+msets = df.columns[1:]
+
+
+# fig = px.line(df, x="Date", y="mset_1" )
+
+app.layout = html.Div([
+    html.Div([
+        html.Div(children=[
+            html.H1(children='Exhuast Analysis'),
+            html.H2(children='''
+                Normalized Returns Data
+            '''),
+        ], style={'padding': 5, 'flex': .25}),
+
+
+        html.Div(children=[
+            html.Label('Choose Metasets:'),
+            dcc.Checklist(msets.T,[],id= 'mset_checklist'),
+            html.Br(),
+        ],style={'padding': 10, 'flex': 0.065}),
+    ],style={'display': 'flex', 'flex': 1, 'flex-direction': 'col'}),
+
+    html.Div(children=[
+        dcc.Graph(
+            id='returns',
+            # figure=fig
+        )
+    ],style={'padding': 0, 'flex': 1,'align': 'left'}),
+])
+
+@app.callback(
+    Output('returns','figure'),
+    Input('mset_checklist','value'))
+
+
+def update_figure(selected_mets):
+    filter_df = df[selected_mets]
+    sum = pd.DataFrame()
+    sum['Combined'] = filter_df.sum(axis=1)
+    filter_df = pd.concat([df['Date'], filter_df], axis = 1)
+
+    show = pd.concat([filter_df,sum],axis =1)
+    labels = {'Date': "Date", 'mset_1': "Returns"}
+    fig = px.line(show, x="Date", y=selected_mets+['Combined'],labels=labels,width=1200, height=600 )
+
+    
+    print(show)
+    return fig
+
+if __name__ == '__main__':
+    app.run_server(debug=True)
