@@ -1,0 +1,560 @@
+import dash
+from dash import Dash, html, dcc, Input, Output, dash_table
+from matplotlib.pyplot import ylabel
+import plotly.express as px
+import pandas as pd
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import json
+import pandas as pd
+import warnings
+import numpy as np
+from statistics import mode
+
+warnings.simplefilter(action='ignore', category=pd.errors.PerformanceWarning)
+
+def calc_env_quant(mkt,comp1, comp2):
+        
+
+    def freedman_diaconis(data):
+        """
+        Use Freedman Diaconis rule to compute optimal # of bins in histogram 
+        parm: data, 1D np array - data whose histogram you want
+        return: bins, int - # of optimal bins
+        """
+
+        q3, q1 = np.percentile(data, [75 ,25])
+        IQR = q3 - q1
+        N = data.size
+        bin_width = (2 * IQR) / np.power(N, 1/3)
+        d_min, d_max = data.min(), data.max()
+        d_range = d_max - d_min
+        bins = int((d_range / bin_width) + 1)
+        return(bins)
+
+    def calc_most_common_following(binn, follow_bins):
+        
+        l = follow_bins.value_counts().index.tolist()
+        if len(l) == 0: 
+            x = None
+        else:
+            x = l[0]
+            if x == binn:
+                if len(l) >0: 
+                    x = l[1]
+                else:
+                    x = None
+        
+        return x
+
+    #Define lists of markets and market sectors to mormailize
+    mkts = ['CU', 'FV', 'JPY2', 'NQ', 'SP', 'TY', 'US', 'YM', 'BC', 'CL', 'HO', 'LG', 'NG', 'RB', 'C2', 'S2', 'SM', 'W2','KC', 'SB', 'GC', 'HG', 'LA', 'LN', 'LO', 'TFM', 'LL', 'LT', 'LX', 'S1F']
+    mkts = ['HO', 'LG', 'NG', 'RB', 'C2', 'S2', 'SM', 'W2','KC', 'SB', 'GC', 'HG', 'LA', 'LN', 'LO', 'TFM', 'LL', 'LT', 'LX', 'S1F']
+    ma_f = 5 #length of fast MA
+    ma_s = 40 #length of slow MA
+
+    #Map from mkt to mkt sector
+    symbol_dir_dict = {'AEX' : 'eqty', 'ALS' : 'eqty', 'EMD' : 'eqty', 'EX' : 'eqty', 'FCH' : 'eqty', 'FI' : 'eqty',
+                        'FX' : 'eqty', 'HCE' : 'eqty', 'HSI' : 'eqty', 'IFS' : 'eqty', 'IND' : 'eqty', 'KOS' : 'eqty',
+                        'ME' : 'eqty', 'MFS' : 'eqty', 'NQ' : 'eqty', 'OMX' : 'eqty', 'RS1' : 'eqty', 'RT' : 'eqty',
+                        'SIN' : 'eqty', 'SP' : 'eqty', 'SS' : 'eqty', 'SSG' : 'eqty', 'STW' : 'eqty', 'SXF' : 'eqty',
+                        'TP' : 'eqty', 'YA' : 'eqty', 'YM' : 'eqty', 'BON' : 'fi_rates', 'BTP' : 'fi_rates',
+                        'BTS' : 'fi_rates', 'BX' : 'fi_rates', 'CB' : 'fi_rates', 'CON' : 'fi_rates', 'CTT' : 'fi_rates',
+                        'EB' : 'fi_rates', 'EBX' : 'fi_rates', 'ED' : 'fi_rates', 'EL' : 'fi_rates', 'EZ' : 'fi_rates',
+                        'FE' : 'fi_rates', 'FG' : 'fi_rates', 'FOA' : 'fi_rates', 'FV' : 'fi_rates', 'JEY' : 'fi_rates',
+                        'JM' : 'fi_rates', 'KT0' : 'fi_rates', 'KTB' : 'fi_rates', 'NBB' : 'fi_rates', 'TU' : 'fi_rates',
+                        'TY' : 'fi_rates', 'UL' : 'fi_rates', 'US' : 'fi_rates', 'YB' : 'fi_rates', 'YC' : 'fi_rates',
+                        'YT' : 'fi_rates', 'AD' : 'crncy', 'BP' : 'crncy', 'BRL2' : 'crncy', 'CAD2' : 'crncy', 'CHF2' : 'crncy',
+                        'CLP2' : 'crncy', 'CNH2' : 'crncy', 'COP2' : 'crncy', 'CU' : 'crncy', 'DX' : 'crncy', 'HUF2' : 'crncy',
+                        'IDR2' : 'crncy', 'ILS2' : 'crncy', 'INR2' : 'crncy', 'JPY2' : 'crncy', 'KRW2' : 'crncy',
+                        'MXN2' : 'crncy', 'NE' : 'crncy', 'NOK2' : 'crncy', 'PLN2' : 'crncy', 'RF' : 'crncy', 'RP' : 'crncy',
+                        'RUB2' : 'crncy', 'RY' : 'crncy', 'SEK2' : 'crncy', 'SGD2' : 'crncy', 'TRY2' : 'crncy', 'TWD2' : 'crncy',
+                        'BC' : 'energy', 'CL' : 'energy', 'HO' : 'energy', 'LG' : 'energy', 'NG' : 'energy', 'RB' : 'energy',
+                        'DET' : 'energy', 'JKM' : 'energy', 'NGL' : 'energy', 'TFM' : 'energy', 'BEN' : 'energy',
+                        'BNN' : 'energy', 'BPN' : 'energy', 'CCO' : 'energy', 'CFU' : 'energy', 'NOM' : 'energy', 'RC' : 'energy',
+                        'CFI' : 'energy', 'CME' : 'energy', 'CTC' : 'energy', 'CUN' : 'energy', 'DCJ' : 'energy', 'DMJ' : 'energy',
+                        'E5N' : 'energy', 'HTN' : 'energy', 'NCM' : 'energy', 'WTN' : 'energy', 'YVN' : 'energy', 'BO' : 'agri',
+                        'C2' : 'agri', 'KW' : 'agri', 'MW' : 'agri', 'S2' : 'agri', 'SM' : 'agri', 'W2' : 'agri', 'WC' : 'agri',
+                        'WM' : 'agri', 'WR' : 'agri', 'CRM' : 'agri', 'CRO' : 'agri', 'CTA' : 'agri', 'DBO' : 'agri',
+                        'DCC' : 'agri', 'DPO' : 'agri', 'DSA' : 'agri', 'DSM' : 'agri', 'JR' : 'agri', 'KPO' : 'agri',
+                        'MAW' : 'agri', 'MAY' : 'agri', 'SDY' : 'agri', 'SNR' : 'agri', 'WEA' : 'agri', 'CC' : 'foodfib',
+                        'CT' : 'foodfib', 'KC' : 'foodfib', 'SB' : 'foodfib', 'WK' : 'foodfib', 'WS' : 'foodfib', 'ZO' : 'foodfib',
+                        'CCF' : 'foodfib', 'CSR' : 'foodfib', 'LC' : 'foodfib', 'LH' : 'foodfib', 'FC' : 'foodfib',
+                        'GC' : 'metals', 'HG' : 'metals', 'LA' : 'metals', 'LN' : 'metals', 'LO' : 'metals', 'SI' : 'metals',
+                        'DIO' : 'metals', 'LL' : 'metals', 'LT' : 'metals', 'LX' : 'metals', 'PL' : 'metals', 'S1F' : 'metals',
+                        'SAF' : 'metals', 'SCF' : 'metals', 'SHC' : 'metals', 'SNI' : 'metals', 'SNS' : 'metals', 'SPB' : 'metals',
+                        'SRB' : 'metals', 'ZNS' : 'metals', 'ZP' : 'metals', 'ATM_USD' : 'crypto', 'AVX_USD' : 'crypto',
+                        'BTC_USD' : 'crypto', 'DOG_USD' : 'crypto', 'DOT_USD' : 'crypto', 'DSH_USD' : 'crypto',
+                        'ETH_USD' : 'crypto', 'MAT_USD' : 'crypto', 'SHB_USD' : 'crypto', 'SOL_USD' : 'crypto',
+                        'UST_USD' : 'crypto'}
+
+    #Map from mkt to all msets, submarkets, and strats within that market
+    mset_mkt_strat_in_mkt = json.load(open("JN work/msets_mkts_strat_in_mkt_dir.txt"))
+
+    #Define base path to return data folder
+    base_path = r"C:/Users/sjr/Dropbox/secondary_analysis/JN work/norm_return_data/"
+
+
+    #Get mkt sector and list of msets, submkts and strats for mkt
+    mkt_sector = symbol_dir_dict[mkt] 
+    # msets = mset_mkt_strat_in_mkt[mkt]['msets']
+    # sub_mkts = mset_mkt_strat_in_mkt[mkt]['mkts']
+    # strats = mset_mkt_strat_in_mkt[mkt]['strats']
+
+    #Delete when ready for all comps
+    ####################################################################
+    # mset_mkt_strat_in_mkt[mkt]['all'] = ['mset_CLtfv2']
+    # comp2_list = ['mset_CLmrf2']
+    #####################################################################
+
+    #Build path to and import cumm Pl data
+    path = base_path+mkt_sector+'/'+mkt+'/'+mkt+'_mset_submkt_strat_cumm_pl_history_adj.csv' #Path to daily returns data
+    data_import = pd.read_csv(path)
+    dates = data_import['date']
+
+    #Loop through each msets,mkt,strat to calc its enviormental relationship with other comps
+
+    print(f'Calculating Enviorment Relationships For: {comp1} and {comp2}\n')
+
+    #Create df to store data for comp1
+    comp1_df = pd.DataFrame() 
+    comp1_df['date'] = dates.copy()
+    comp1_df[f'{comp1}_cumm_pl'] = data_import[f'{comp1}_cumm_pl'].copy()
+    comp1_df[f'{comp1}_pl_d'] = comp1_df[f'{comp1}_cumm_pl'].diff().fillna(0) #calc daily pl
+    comp1_df[f'{comp1}_{ma_f}d_MA'] = comp1_df[f'{comp1}_pl_d'].shift().rolling(ma_f,min_periods=1).mean().fillna(0) #calc ma_f day moving average
+    comp1_df[f'{comp1}_{ma_s}d_MA'] = comp1_df[f'{comp1}_pl_d'].shift().rolling(ma_s,min_periods=1).mean().fillna(0) #calc ma_s day moving average
+
+    
+    #Create df to store data for comp1
+    comp2_df = pd.DataFrame()
+    comp2_df[f'{comp2}_cumm_pl'] = data_import[f'{comp2}_cumm_pl'].copy()
+    comp2_df[f'{comp2}_pl_d'] = comp2_df[f'{comp2}_cumm_pl'].diff().fillna(0)
+    comp2_df[f'{comp2}_{ma_f}d_MA'] = comp2_df[f'{comp2}_pl_d'].shift().rolling(ma_f,min_periods=1).mean().fillna(0)
+    comp2_df[f'{comp2}_{ma_s}d_MA'] = comp2_df[f'{comp2}_pl_d'].shift().rolling(ma_s,min_periods=1).mean().fillna(0)
+    
+    #combine comp1 and comp2 data. calc enviorment and relative enviorment
+    comb_df = pd.DataFrame()
+    comb_df = pd.concat([comp1_df, comp2_df], axis = 1).iloc[40:].reset_index(drop=True)
+    comb_df[f'{comp1}_env'] = comb_df[f'{comp1}_{ma_f}d_MA'] - comb_df[f'{comp1}_{ma_s}d_MA']
+    comb_df[f'{comp2}_env'] = comb_df[f'{comp2}_{ma_f}d_MA'] - comb_df[f'{comp2}_{ma_s}d_MA']
+    comb_df[f'{comp1}_{comp2}_rel_env'] = comb_df[f'{comp1}_env'] - comb_df[f'{comp2}_env'] 
+
+    #convert relative envs to array so numpy can do bin classification
+    env_rel = np.array(comb_df[f'{comp1}_{comp2}_rel_env'])
+    
+    #calc # of bins, break data into bins, map what bin each datapoint goes to
+    num_bins = 11 #freedman_diaconis(env_rel)
+    hist, bin_edges = np.histogram(env_rel, bins=num_bins)
+    bin_inds = np.digitize(env_rel, bins=bin_edges,right=False)
+
+    comb_df[f'{comp1}_{comp2}_bin'] = bin_inds #add col to comb df that has each row's bin
+    comb_df['following_bin'] = comb_df[f'{comp1}_{comp2}_bin'].shift(periods=-1)
+
+    # outpath = Path(base_path.replace('norm_return_data','enviorment_quantization')+f"daily_tables/{mkt_sector}/{mkt}/{comp1}")
+    # file_name = f'{comp1}_{comp2}_trades.csv' 
+    # outpath.mkdir(parents=True, exist_ok=True)
+    # comb_df.to_csv(outpath / file_name, index=False)
+            
+
+    #loop through each bin and calc performaces of the two comps in that bin
+    performance_df = pd.DataFrame(columns=['Bin', '# Trades', 'Lower Bound', 'Upper Bound', f'{comp1} Avg PL', f'{comp1} Stdev PL', f'{comp2} Avg PL', f'{comp2} Stdev PL'])
+    for b in range(1,num_bins):
+        performance_df.loc[b,'Bin'] = b
+        performance_df.loc[b,'# Trades'] = comb_df.loc[comb_df[f'{comp1}_{comp2}_bin'] == b,f'{comp1}_pl_d'].count()
+        performance_df.loc[b,'Lower Bound'] = bin_edges[b-1]
+        performance_df.loc[b,'Upper Bound'] = bin_edges[b]
+        performance_df.loc[b,f'{comp1} Avg PL'] = comb_df.loc[comb_df[f'{comp1}_{comp2}_bin'] == b, f'{comp1}_pl_d'].mean()
+        performance_df.loc[b,f'{comp1} Stdev PL'] = comb_df.loc[comb_df[f'{comp1}_{comp2}_bin'] == b, f'{comp1}_pl_d'].std()
+        performance_df.loc[b,f'{comp2} Avg PL'] = comb_df.loc[comb_df[f'{comp1}_{comp2}_bin'] == b, f'{comp2}_pl_d'].mean()
+        performance_df.loc[b,f'{comp2} Stdev PL'] = comb_df.loc[comb_df[f'{comp1}_{comp2}_bin'] == b, f'{comp2}_pl_d'].std()
+        performance_df.loc[b,f'Mode Following Bin'] = calc_most_common_following(b,comb_df.loc[comb_df[f'{comp1}_{comp2}_bin'] == b, 'following_bin'])
+
+
+    #Add total performance for reference
+    performance_df.loc[0,'Bin'] = 'ALL'
+    performance_df.loc[0,'# Trades'] = comb_df[f'{comp1}_{comp2}_bin'].count()
+    performance_df.loc[0,'Lower Bound'] = bin_edges[0]
+    performance_df.loc[0,'Upper Bound'] = bin_edges[-1]
+    performance_df.loc[0,f'{comp1} Avg PL'] = comb_df.loc[:,f'{comp1}_pl_d'].mean()
+    performance_df.loc[0,f'{comp1} Stdev PL'] = comb_df.loc[:, f'{comp1}_pl_d'].std()
+    performance_df.loc[0,f'{comp2} Avg PL'] = comb_df.loc[:, f'{comp2}_pl_d'].mean()
+    performance_df.loc[0,f'{comp2} Stdev PL'] = comb_df.loc[:, f'{comp2}_pl_d'].std()
+    performance_df.loc[0,f'Mode Following Bin'] = None
+    
+    #Fill NAs when applicible
+    performance_df['# Trades'] = performance_df['# Trades'].fillna(0)
+    performance_df[f'{comp1} Avg PL'] = performance_df[f'{comp1} Avg PL'].fillna(0)
+    performance_df[f'{comp2} Avg PL'] = performance_df[f'{comp2} Avg PL'].fillna(0)
+
+    # outpath = Path(base_path.replace('norm_return_data','enviorment_quantization')+f"performance_tables/{mkt_sector}/{mkt}/{comp1}")
+    # file_name = f'{comp1}_{comp2}_performance.csv' 
+    # outpath.mkdir(parents=True, exist_ok=True)
+    # performance_df.to_csv(outpath / file_name, index=False)
+
+    return performance_df, comb_df
+
+
+
+app = Dash(__name__)
+
+#Map from mkt to mkt_sector
+symbol_dir_dict = {'AEX' : 'eqty', 'ALS' : 'eqty', 'EMD' : 'eqty', 'EX' : 'eqty', 'FCH' : 'eqty', 'FI' : 'eqty',
+                     'FX' : 'eqty', 'HCE' : 'eqty', 'HSI' : 'eqty', 'IFS' : 'eqty', 'IND' : 'eqty', 'KOS' : 'eqty',
+                     'ME' : 'eqty', 'MFS' : 'eqty', 'NQ' : 'eqty', 'OMX' : 'eqty', 'RS1' : 'eqty', 'RT' : 'eqty',
+                     'SIN' : 'eqty', 'SP' : 'eqty', 'SS' : 'eqty', 'SSG' : 'eqty', 'STW' : 'eqty', 'SXF' : 'eqty',
+                     'TP' : 'eqty', 'YA' : 'eqty', 'YM' : 'eqty', 'BON' : 'fi_rates', 'BTP' : 'fi_rates',
+                     'BTS' : 'fi_rates', 'BX' : 'fi_rates', 'CB' : 'fi_rates', 'CON' : 'fi_rates', 'CTT' : 'fi_rates',
+                     'EB' : 'fi_rates', 'EBX' : 'fi_rates', 'ED' : 'fi_rates', 'EL' : 'fi_rates', 'EZ' : 'fi_rates',
+                     'FE' : 'fi_rates', 'FG' : 'fi_rates', 'FOA' : 'fi_rates', 'FV' : 'fi_rates', 'JEY' : 'fi_rates',
+                     'JM' : 'fi_rates', 'KT0' : 'fi_rates', 'KTB' : 'fi_rates', 'NBB' : 'fi_rates', 'TU' : 'fi_rates',
+                     'TY' : 'fi_rates', 'UL' : 'fi_rates', 'US' : 'fi_rates', 'YB' : 'fi_rates', 'YC' : 'fi_rates',
+                     'YT' : 'fi_rates', 'AD' : 'crncy', 'BP' : 'crncy', 'BRL2' : 'crncy', 'CAD2' : 'crncy', 'CHF2' : 'crncy',
+                     'CLP2' : 'crncy', 'CNH2' : 'crncy', 'COP2' : 'crncy', 'CU' : 'crncy', 'DX' : 'crncy', 'HUF2' : 'crncy',
+                     'IDR2' : 'crncy', 'ILS2' : 'crncy', 'INR2' : 'crncy', 'JPY2' : 'crncy', 'KRW2' : 'crncy',
+                     'MXN2' : 'crncy', 'NE' : 'crncy', 'NOK2' : 'crncy', 'PLN2' : 'crncy', 'RF' : 'crncy', 'RP' : 'crncy',
+                     'RUB2' : 'crncy', 'RY' : 'crncy', 'SEK2' : 'crncy', 'SGD2' : 'crncy', 'TRY2' : 'crncy', 'TWD2' : 'crncy',
+                     'BC' : 'energy', 'CL' : 'energy', 'HO' : 'energy', 'LG' : 'energy', 'NG' : 'energy', 'RB' : 'energy',
+                     'DET' : 'energy', 'JKM' : 'energy', 'NGL' : 'energy', 'TFM' : 'energy', 'BEN' : 'energy',
+                     'BNN' : 'energy', 'BPN' : 'energy', 'CCO' : 'energy', 'CFU' : 'energy', 'NOM' : 'energy', 'RC' : 'energy',
+                     'CFI' : 'energy', 'CME' : 'energy', 'CTC' : 'energy', 'CUN' : 'energy', 'DCJ' : 'energy', 'DMJ' : 'energy',
+                     'E5N' : 'energy', 'HTN' : 'energy', 'NCM' : 'energy', 'WTN' : 'energy', 'YVN' : 'energy', 'BO' : 'agri',
+                     'C2' : 'agri', 'KW' : 'agri', 'MW' : 'agri', 'S2' : 'agri', 'SM' : 'agri', 'W2' : 'agri', 'WC' : 'agri',
+                     'WM' : 'agri', 'WR' : 'agri', 'CRM' : 'agri', 'CRO' : 'agri', 'CTA' : 'agri', 'DBO' : 'agri',
+                     'DCC' : 'agri', 'DPO' : 'agri', 'DSA' : 'agri', 'DSM' : 'agri', 'JR' : 'agri', 'KPO' : 'agri',
+                     'MAW' : 'agri', 'MAY' : 'agri', 'SDY' : 'agri', 'SNR' : 'agri', 'WEA' : 'agri', 'CC' : 'foodfib',
+                     'CT' : 'foodfib', 'KC' : 'foodfib', 'SB' : 'foodfib', 'WK' : 'foodfib', 'WS' : 'foodfib', 'ZO' : 'foodfib',
+                     'CCF' : 'foodfib', 'CSR' : 'foodfib', 'LC' : 'foodfib', 'LH' : 'foodfib', 'FC' : 'foodfib',
+                     'GC' : 'metals', 'HG' : 'metals', 'LA' : 'metals', 'LN' : 'metals', 'LO' : 'metals', 'SI' : 'metals',
+                     'DIO' : 'metals', 'LL' : 'metals', 'LT' : 'metals', 'LX' : 'metals', 'PL' : 'metals', 'S1F' : 'metals',
+                     'SAF' : 'metals', 'SCF' : 'metals', 'SHC' : 'metals', 'SNI' : 'metals', 'SNS' : 'metals', 'SPB' : 'metals',
+                     'SRB' : 'metals', 'ZNS' : 'metals', 'ZP' : 'metals', 'ATM_USD' : 'crypto', 'AVX_USD' : 'crypto',
+                     'BTC_USD' : 'crypto', 'DOG_USD' : 'crypto', 'DOT_USD' : 'crypto', 'DSH_USD' : 'crypto',
+                     'ETH_USD' : 'crypto', 'MAT_USD' : 'crypto', 'SHB_USD' : 'crypto', 'SOL_USD' : 'crypto',
+                     'UST_USD' : 'crypto'}
+
+#Map from mkt to all msets, submarkets, and strats within that makret
+mset_mkt_strat_in_mkt = json.load(open("JN work/msets_mkts_strat_in_mkt_dir.txt"))
+
+#Set options for mkts, scopes, and metrics that can be selected
+mkt_options = ['BC','C2','CL','CU','FV','GC','HG','HO','JPY2','LA','LG','LL','LN','LO','LT','LX','NG','NQ','RB','S1F','S2','SB','SM','SP','TFM','TY','US','W2','KC','YM']
+scope_options = ['msets', 'mkts', 'strats']
+metrics = {'Cumm/PL': 'cumm_pl', 'VAMI': 'vami', 'Drawdowns': 'dd', 'Peaks':'peaks'}
+
+#define 
+base_path = r"C:/Users/sjr/Dropbox/secondary_analysis/JN work/norm_return_data/"
+
+#Set Initial mkt and scope (used to track if mkt or scope was changed)
+prev_mkts1 = ['CL']
+prev_scope1 = ['msets']
+# prev_mkts2 = ['CL']
+# prev_scope2 = ['msets']
+
+app.layout = html.Div([
+
+    #mkt dropdown and scope section
+    html.Div(children=[
+        html.Div(children=[
+            html.Label("Choose Market:"),
+            dcc.Dropdown(
+                id = 'mkt_dropdown',
+                options = [{'label': k, 'value': k} for k in mkt_options],
+                value = 'CL',
+                style={
+                    'width': '50%'
+                }
+            ),
+        ],style={'padding': 10, 'flex': 1}),
+
+        html.Div(children=[
+            html.Label("Choose Scope:"),
+            dcc.RadioItems(
+                id = 'scope_radio',
+                options=[{'label': k, 'value': k} for k in scope_options],
+                value='msets',
+                style={
+                    'width': '50%',
+                }
+            ),
+        ],style={'padding': 10, 'flex': 1}),
+    ], style={'display': 'flex', 'flex-direction': 'row'}),
+
+    #Component comp 1 and 2 radio
+    html.Div(children=[
+        html.Div(children=[
+            html.Label("Choose Component 1:"),
+            dcc.Dropdown(
+                id = 'comp1_dropdown',
+                options = [{'label': '', 'value': ''}],
+                value = [],
+                style={
+                    'width': '50%'
+                }
+            ),
+        ],style={'padding': 10, 'flex': 1}),
+
+        html.Div(children=[
+            html.Label("Choose Component 2:"),
+            dcc.Dropdown(
+                id = 'comp2_dropdown',
+                options = [{'label': '', 'value': ''}],
+                value = [],
+                style={
+                    'width': '50%'
+                }
+            ),
+        ],style={'padding': 10, 'flex': 1}),
+    ], style={'display': 'flex', 'flex-direction': 'row'}),
+    
+    #Env Map and Freq Pie Chart
+    html.Div(children=[
+        html.Div(children=[
+            html.Label("Enviorment Map:"),
+            dash_table.DataTable(id='env_map_table'),
+        ],style={'padding': 10, 'flex': 1}),
+
+        
+        html.Div(children=[
+            html.Label("Enviorment Map"),
+            dcc.Graph(
+                id = 'freq_fig',
+                style={
+                    'padding': 0,
+                    'width': '50%',
+                }
+            ),
+        ],style={'padding': 10, 'flex': 1}),
+    
+    ], style={'display': 'flex', 'flex-direction': 'row'}),
+
+    #AVG Daily PL chart
+    html.Div(children=[
+        html.H2('Avg Daily PL Per Enviorment:'),
+        dcc.Graph(
+            id = 'avg_pl_fig',
+            style={
+                    'padding': 0,
+                    'width': '90%',
+                    'height': '100%',
+            },
+        ),
+    ]),
+
+    #Cum PL Chart
+    html.Div(children=[
+        html.H2('Performance Chart:'),
+
+        html.Div(children=[
+            html.Label("Show Combined?"),
+            dcc.RadioItems(
+                id = 'show_comb_radio',
+                options=['yes', 'no'],
+                value='yes',
+                style={
+                    'width': '25%',
+                    'inline': True
+                },
+            ),
+        ],style={'padding': 10, 'width': '25%'}),
+
+        dcc.Graph(
+            id = 'cum_pl_fig',
+            style={
+                    'padding': 0,
+                    'width': '90%',
+                    'height': '100%',
+            },
+        ),
+    ]),
+
+    #Performance table
+    html.Div(children=[
+        html.H2('Performance Table:'),
+        dash_table.DataTable(id='performance_table'),
+    ]),
+])
+
+
+#Display comp1_dropdown and comp2_dropdown options
+@app.callback(
+    Output('comp1_radio', 'options'),
+    Output('comp2_radio', 'options'),
+    Input('mkt_dropdown', 'value'),
+    Input('scope_radio', 'value'))
+def set_components_options(selected_mkt,selected_scope):
+    comp1_dropdown = [{'label': i, 'value': i} for i in mset_mkt_strat_in_mkt[selected_mkt][selected_scope]]
+    comp2_dropdown = comp1_dropdown
+    return comp1_dropdown, comp2_dropdown
+
+#Set comp1_dropdown value and reset if mkt or scope is changed
+@app.callback(
+    Output('comp1_dropdown', 'value'),
+    Input('comp1_dropdown', 'value'),
+    Input('mkt_dropdown','value'),
+    Input('scope_radio', 'value')
+    )
+def set_comp1_value(available_options,selected_mkt, scope_radio):
+    #Update values of comp was selected or unselected
+    if scope_radio == prev_scope1[-1] and selected_mkt == prev_mkts1[-1]:
+        selected_comp1 = available_options[0]['value']
+    #Clear Selection if mkt or scope was changed
+    else:
+        selected_comp1 = []
+
+    #Add current mkt and scope to list so we can see if they are changed in the future
+    prev_mkts1.append(selected_mkt)
+    prev_scope1.append(scope_radio)
+    return selected_comp1
+
+#Set comp1_dropdown value and reset if mkt or scope is changed
+@app.callback(
+    Output('comp2_dropdown', 'value'),
+    Input('comp2_dropdown', 'value'),
+    Input('mkt_dropdown','value'),
+    Input('scope_radio', 'value')
+    )
+def set_comp2_value(available_options,selected_mkt, scope_radio):
+    #Update values of comp was selected or unselected
+    if scope_radio == prev_scope1[-1] and selected_mkt == prev_mkts1[-1]:
+        selected_comp2 = available_options[0]['value']
+    #Clear Selection if mkt or scope was changed
+    else:
+        selected_comp2 = []
+
+    #Add current mkt and scope to list so we can see if they are changed in the future
+    # prev_mkts1.append(selected_mkt)
+    # prev_scope1.append(scope_radio)
+    return selected_comp2
+
+
+#Update the performance figure and table
+@app.callback(
+    Output('metrics_fig', 'figure'),
+    Output('performance_table','data'),
+    Output('performance_table','columns'),
+    Input('comp1_dropdown', 'value'),
+    Input('comp2_dropdown', 'value'),
+    Input('mkt_dropdown', 'value'),
+    Input('scope_radio', 'value'),
+    Input('metric_radio', 'value'),
+    Input('show_comb_radio', 'value'),
+    )
+def update_figure(selected_comp1, selected_comp2, selected_mkt, selected_scope, selected_metric,combined_bol):
+    #build path and import data
+    selected_comps = [selected_comp1, selected_comp2]
+
+    #####TO DO:
+    ##### Reset Path
+    path = base_path+symbol_dir_dict[selected_mkt]+'/'+selected_mkt+'/'+selected_mkt+'_mset_submkt_strat_'+selected_metric+'_history_adj.csv'
+    data_raw = pd.read_csv(path)
+    dates = data_raw['date']
+
+    
+    if combined_bol == 'yes':
+        #initialize plot and df useed to hold combined results
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+        combined = pd.DataFrame()
+
+        #Add each comps performance to the the graph and concat it too the combined df
+        for comp in selected_comps:
+            col = comp+'_'+selected_metric
+            combined = pd.concat([combined, data_raw[col]], axis=1)
+            fig.add_trace(go.Scatter(x=dates, y=data_raw[col], name=comp),  secondary_y=False)
+
+        #sum the performance and add it on the second y axis
+        combined['Combined'] = combined.sum(axis=1)
+        fig.add_trace(go.Scatter(x=dates, y=combined['Combined'], name='Combined'),  secondary_y=True,)
+
+        #Add the range slider under the graph
+        fig.update_xaxes(rangeslider_visible=True,
+                        rangeselector=dict(buttons=list([
+                            dict(count=1, label="1m", step="month", stepmode="backward"),
+                            dict(count=6, label="6m", step="month", stepmode="backward"),
+                            dict(count=1, label="YTD", step="year", stepmode="todate")])))
+        fig.update_yaxes(autorange=True, fixedrange=False)
+
+        # Set x-axis title
+        fig.update_xaxes(title_text="Date")
+
+        # Set y-axes titles
+        fig.update_yaxes(title_text="Component Returns", secondary_y=False)
+        fig.update_yaxes(title_text="Combined Returns", secondary_y=True)
+        fig.update_layout(height=800)
+
+    else:
+        #initialize plot and df useed to hold combined results
+        fig = make_subplots(specs=[[{"secondary_y": False}]])
+
+        #Add each comps performance to the the graph and concat it too the combined df
+        for comp in selected_comps:
+            col = comp+'_'+selected_metric
+            fig.add_trace(go.Scatter(x=dates, y=data_raw[col], name=comp),  secondary_y=False)
+
+        #Add the range slider under the graph
+        fig.update_xaxes(rangeslider_visible=True,
+                        rangeselector=dict(buttons=list([
+                            dict(count=1, label="1m", step="month", stepmode="backward"),
+                            dict(count=6, label="6m", step="month", stepmode="backward"),
+                            dict(count=1, label="YTD", step="year", stepmode="todate")])))
+        fig.update_yaxes(autorange=True, fixedrange=False)
+
+        # Set x-axis title
+        fig.update_xaxes(title_text="Date")
+
+        # Set y-axes titles
+        fig.update_yaxes(title_text="Component Returns", secondary_y=False)
+        fig.update_layout(height=800)
+
+
+    #TO DO: Build Performance table
+    d = [["Metric 1", 0, 0, 0], ["Metric 2",0,0,0], ["Metric 3",0,0,0] ]
+    c = ['Metric', 'comp1', 'comp2', 'comp3']
+    df = pd.DataFrame(data = d, columns = c)
+    tab = dash_table.DataTable(df.to_dict('records'), [{"name": i, "id": i} for i in df.columns])
+
+    return fig, df.to_dict('records'), [{"name": i, "id": i} for i in df.columns]
+
+
+
+@app.callback(
+    Output('env_map_table','data'),
+    Output('env_map_table','columns'),
+    Output('performance_table','data'),
+    Output('performance_table','columns'),
+    Input('comp1_dropdown', 'value'),
+    Input('comp2_dropdown', 'value'),
+    Input('mkt_dropdown', 'value'),)
+def update_env_map_and_performance_tab(selected_comp1, selected_comp2, selected_mkt):
+    global performance_tab
+    global comb_table
+
+    performance_tab, comb_table = calc_env_quant(selected_mkt, selected_comp1, selected_comp2)
+
+    env_map = performance_tab[['Bin', 'Lower Bound', 'Upper Bound']]
+
+    env_map_data = env_map.to_dict('records')
+    env_map_cols = [{"name": i, "id": i} for i in env_map.columns]
+
+    performance_tab_data = performance_tab.to_dict('records')
+    performance_tab_cols = [{"name": i, "id": i} for i in performance_tab_data.columns]
+
+    return env_map_data, env_map_cols, performance_tab_data, performance_tab_cols
+    
+
+
+@app.callback(
+    Output("freq_fig", "figure"), 
+    Input('comp1_dropdown', 'value'),
+    Input('comp2_dropdown', 'value'),
+    Input('mkt_dropdown', 'value'),
+    Input('scope_radio', 'value'),)
+def update_freq_fig(selected_comp1, selected_comp2, selected_mkt, selected_scope,):
+
+    df = performance_tab[['Bin', 'Num_Trades']]
+    fig = px.pie(df, values=df['Num_Trades'], names=df['Bin'], hole=.3)
+    return fig
+
+
+
+
+if __name__ == '__main__':
+    app.run_server(debug=True)
